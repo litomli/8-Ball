@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>How the 8-Ball Leaderboard App Was Built — a tutorial</title>
+    <style>
+      :root {
+        --ink: #16181d;
+        --muted: #5b6472;
+        --line: #e3e6ea;
+        --accent: #1f6feb;
+        --bg: #ffffff;
+        --code-bg: #0f1117;
+        --code-ink: #e6e9ef;
+        --note: #f4f7ff;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      .wrap { max-width: 820px; margin: 0 auto; padding: 48px 20px 96px; }
+      header.hero { border-bottom: 1px solid var(--line); padding-bottom: 28px; margin-bottom: 32px; }
+      h1 { font-size: 2.1rem; line-height: 1.2; margin: 0 0 10px; }
+      h2 {
+        font-size: 1.45rem;
+        margin: 56px 0 12px;
+        padding-top: 10px;
+        border-top: 1px solid var(--line);
+      }
+      h3 { font-size: 1.1rem; margin: 30px 0 8px; }
+      p, li { color: var(--ink); }
+      .lede { color: var(--muted); font-size: 1.05rem; }
+      a { color: var(--accent); }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.88em;
+        background: #f2f4f7;
+        padding: 0.12em 0.36em;
+        border-radius: 4px;
+      }
+      pre {
+        background: var(--code-bg);
+        color: var(--code-ink);
+        padding: 16px 18px;
+        border-radius: 10px;
+        overflow-x: auto;
+        font-size: 0.86rem;
+        line-height: 1.55;
+      }
+      pre code { background: none; padding: 0; color: inherit; font-size: 1em; }
+      .file {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 18px 0 6px;
+        letter-spacing: 0.02em;
+      }
+      .note {
+        background: var(--note);
+        border-left: 3px solid var(--accent);
+        padding: 12px 16px;
+        border-radius: 0 8px 8px 0;
+        margin: 18px 0;
+      }
+      .note strong { display: block; margin-bottom: 2px; }
+      table { border-collapse: collapse; width: 100%; margin: 18px 0; font-size: 0.94rem; }
+      th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 9px 10px; }
+      th { color: var(--muted); font-weight: 600; }
+      nav.toc { background: #fafbfc; border: 1px solid var(--line); border-radius: 10px; padding: 16px 20px; }
+      nav.toc ol { margin: 8px 0 0; padding-left: 22px; }
+      nav.toc a { text-decoration: none; }
+      nav.toc a:hover { text-decoration: underline; }
+      footer { margin-top: 64px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--muted); font-size: 0.9rem; }
+      .kbd {
+        border: 1px solid var(--line);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        padding: 1px 6px;
+        font-size: 0.8rem;
+        font-family: ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="hero">
+        <h1>How the 8-Ball Leaderboard Was Built</h1>
+        <p class="lede">
+          A walkthrough of every piece of the pool-league web app —
+          <a href="https://8-ball-ruby.vercel.app">8-ball-ruby.vercel.app</a> —
+          written for someone who knows a bit of HTML/JavaScript and wants to
+          understand how a real, deployed web app fits together.
+        </p>
+      </header>
+
+      <nav class="toc">
+        <strong>What we'll cover</strong>
+        <ol>
+          <li><a href="#big-picture">The big picture: what runs where</a></li>
+          <li><a href="#stack">The five tools, and why each one exists</a></li>
+          <li><a href="#scaffold">Step 1 — Creating the project</a></li>
+          <li><a href="#database">Step 2 — Designing the database</a></li>
+          <li><a href="#connect">Step 3 — Talking to the database from code</a></li>
+          <li><a href="#pages">Step 4 — Server Components: pages that read the database</a></li>
+          <li><a href="#form">Step 5 — The form and Server Actions (writing data)</a></li>
+          <li><a href="#leaderboard">Step 6 — The leaderboard algorithm</a></li>
+          <li><a href="#api">Step 7 — A JSON API for scripts</a></li>
+          <li><a href="#deploy">Step 8 — Putting it on the internet</a></li>
+          <li><a href="#backfill">Step 9 — Backfilling old results (and a bug we fixed)</a></li>
+          <li><a href="#ideas">Try it yourself: 8 exercises</a></li>
+          <li><a href="#glossary">Glossary</a></li>
+        </ol>
+      </nav>
+
+      <h2 id="big-picture">1. The big picture: what runs where</h2>
+      <p>
+        A web app is really three separate computers doing three jobs. Almost
+        every confusing bug comes from mixing up which one you're writing code
+        for, so start here.
+      </p>
+      <table>
+        <tr><th>Computer</th><th>Job in our app</th><th>Files</th></tr>
+        <tr>
+          <td><strong>Browser</strong> (your laptop)</td>
+          <td>Shows the page, handles clicks on the dropdowns</td>
+          <td><code>components/match-form.tsx</code></td>
+        </tr>
+        <tr>
+          <td><strong>Server</strong> (Vercel)</td>
+          <td>Builds the HTML, runs our logic, is the only thing allowed to touch the database</td>
+          <td><code>app/page.tsx</code>, <code>app/actions.ts</code>, <code>app/api/matches/route.ts</code></td>
+        </tr>
+        <tr>
+          <td><strong>Database</strong> (Neon)</td>
+          <td>Remembers the matches forever</td>
+          <td><code>prisma/schema.prisma</code></td>
+        </tr>
+      </table>
+      <p>The full trip when someone records a match:</p>
+      <pre><code>You pick "Lynn beat Neo" and click the button
+        │  (browser)
+        ▼
+recordMatch("Lynn", "Neo")        ← a Server Action: browser calls a function
+        │                            that actually executes on the server
+        ▼
+db.match.create({ ... })          ← Prisma turns this into SQL: INSERT INTO matches ...
+        │
+        ▼
+Neon stores a row                 ← now permanent; survives refreshes and redeploys
+        │
+        ▼
+revalidatePath("/")               ← "that page is stale, rebuild it"
+        │
+        ▼
+Server re-renders the history table and the leaderboard for everyone</code></pre>
+      <div class="note">
+        <strong>Why the database can't be a file on the server</strong>
+        The original plan mentioned SQLite (a database in a single file). On
+        Vercel the server is <em>serverless</em>: it's created to handle a
+        request and thrown away afterwards, so any file it wrote disappears.
+        That's why the data lives in a separate hosted database that all the
+        temporary servers share.
+      </div>
+
+      <h2 id="stack">2. The five tools, and why each one exists</h2>
+      <table>
+        <tr><th>Tool</th><th>Plain-English purpose</th></tr>
+        <tr>
+          <td><strong>Next.js</strong></td>
+          <td>The framework. Turns folders into URLs, renders React on the server, and provides the plumbing between browser and server.</td>
+        </tr>
+        <tr>
+          <td><strong>TypeScript</strong></td>
+          <td>JavaScript plus type labels. It catches mistakes like <code>match.winnner</code> while you type instead of at 11pm in production.</td>
+        </tr>
+        <tr>
+          <td><strong>Tailwind CSS</strong></td>
+          <td>Styling by composing tiny classes (<code>flex</code>, <code>p-6</code>, <code>text-sm</code>) directly in the markup, instead of a separate stylesheet.</td>
+        </tr>
+        <tr>
+          <td><strong>shadcn/ui</strong></td>
+          <td>Ready-made accessible components (Button, Card, Select, Table) that you <em>copy into your repo</em> and can edit — not an installed black box.</td>
+        </tr>
+        <tr>
+          <td><strong>Prisma</strong></td>
+          <td>Lets you describe your tables once and then write <code>db.match.findMany()</code> instead of hand-writing SQL strings.</td>
+        </tr>
+      </table>
+
+      <h2 id="scaffold">3. Step 1 — Creating the project</h2>
+      <p>
+        One command generates a working Next.js app. The flags just answer the
+        setup questions up front:
+      </p>
+      <pre><code>npx create-next-app@14 8-Ball --ts --tailwind --eslint --app --no-src-dir --import-alias "@/*"</code></pre>
+      <ul>
+        <li><code>--ts</code> — TypeScript instead of plain JavaScript.</li>
+        <li><code>--app</code> — the App Router: <strong>a folder named <code>app/leaderboard/</code> with a <code>page.tsx</code> inside becomes the URL <code>/leaderboard</code></strong>. No routing config anywhere.</li>
+        <li><code>--import-alias "@/*"</code> — lets us write <code>@/lib/db</code> from any file instead of counting <code>../../</code>.</li>
+      </ul>
+      <p>Then the extra libraries this app needs:</p>
+      <pre><code>npm install @prisma/client @radix-ui/react-select @radix-ui/react-slot \
+            class-variance-authority clsx tailwind-merge tailwindcss-animate lucide-react
+npm install --save-dev prisma</code></pre>
+      <p>
+        The middle group is what shadcn/ui components are built out of:
+        <em>Radix</em> supplies the unstyled but accessible behaviour (keyboard
+        navigation, focus handling) and Tailwind supplies the looks.
+      </p>
+
+      <h2 id="database">4. Step 2 — Designing the database</h2>
+      <p>
+        The most important design decision in the whole app: <strong>we do not
+        store wins and losses</strong>. We store one row per match, and compute
+        wins whenever someone asks.
+      </p>
+      <div class="file">prisma/schema.prisma</div>
+      <pre><code>model Match {
+  id        String   @id @default(cuid())
+  winner    String
+  loser     String
+  createdAt DateTime @default(now()) @map(name: "created_at")
+
+  @@index([createdAt])
+  @@map(name: "matches")
+}</code></pre>
+      <p>Line by line:</p>
+      <ul>
+        <li><code>@id @default(cuid())</code> — every row needs a unique name; <code>cuid()</code> generates a random one automatically, so we never invent ids ourselves.</li>
+        <li><code>winner</code>/<code>loser</code> — text, e.g. <code>"Lynn"</code> and <code>"Neo"</code>.</li>
+        <li><code>createdAt @default(now())</code> — the database stamps the time for us.</li>
+        <li><code>@@index([createdAt])</code> — a shortcut that keeps "newest first" fast even with thousands of rows, the same way an index at the back of a book beats flipping every page.</li>
+        <li><code>@@map</code> — the table is called <code>matches</code> in SQL but <code>Match</code> in our code.</li>
+      </ul>
+      <div class="note">
+        <strong>Why storing raw matches beats storing totals</strong>
+        Totals are <em>derived</em> data. If you stored <code>wins = 9</code> and a
+        match was entered by mistake, you'd have to remember to decrement it,
+        and any bug leaves the numbers permanently wrong. With one row per
+        match, deleting the bad row instantly fixes every number on the site —
+        and you get extra features for free (match history, head-to-head
+        records, streaks) because the underlying facts are still there.
+      </div>
+      <p>
+        Running <code>npx prisma db push</code> reads that file and creates the
+        real table in Neon. Prisma also <em>generates</em> a TypeScript client
+        from it, which is why the editor knows <code>match.winner</code> is a
+        string.
+      </p>
+      <p>The four players aren't in the database at all — they never change:</p>
+      <div class="file">lib/players.ts</div>
+      <pre><code>export const PLAYERS = ["Thomas", "Cody", "Neo", "Lynn"] as const
+
+export type Player = (typeof PLAYERS)[number]   // "Thomas" | "Cody" | "Neo" | "Lynn"</code></pre>
+      <p>
+        That second line is a neat TypeScript trick: the <em>type</em> is derived
+        from the list, so if you add a fifth player to the array, every place
+        that handles players type-checks against the new list automatically.
+      </p>
+
+      <h2 id="connect">5. Step 3 — Talking to the database from code</h2>
+      <p>The connection string is a secret, so it lives in an environment variable, never in the code:</p>
+      <div class="file">.env  (git-ignored — never committed!)</div>
+      <pre><code>DATABASE_URL="postgresql://user:password@ep-something.neon.tech/neondb?sslmode=require"</code></pre>
+      <p>
+        <code>.env.example</code> <em>is</em> committed, with a fake value, so the
+        next person knows which variables they need. On Vercel the same variable
+        is set in the project settings.
+      </p>
+      <div class="file">lib/db.ts</div>
+      <pre><code>import { PrismaClient } from "@prisma/client"
+
+let prisma: PrismaClient
+if (process.env.NODE_ENV === "production") {
+  prisma = new PrismaClient()
+} else {
+  if (!global.cachedPrisma) {
+    global.cachedPrisma = new PrismaClient()
+  }
+  prisma = global.cachedPrisma
+}
+
+export const db = prisma</code></pre>
+      <p>
+        Why the odd <code>if</code>? In development Next.js reloads your code on
+        every save. A naive <code>new PrismaClient()</code> would create a fresh
+        database connection each time until the database refuses more. Stashing
+        one client on <code>global</code> — which survives reloads — keeps
+        exactly one connection alive. In production the file loads once, so no
+        trick is needed.
+      </p>
+
+      <h2 id="pages">6. Step 4 — Server Components: pages that read the database</h2>
+      <p>
+        This is the part that surprises people coming from plain React: a page
+        can be an <code>async</code> function that <code>await</code>s the
+        database, because it runs on the server before any HTML is sent.
+      </p>
+      <div class="file">app/page.tsx (trimmed)</div>
+      <pre><code>export const dynamic = "force-dynamic"
+
+export default async function HomePage() {
+  const matches = await getRecentMatches()   // real SQL query, on the server
+
+  return (
+    &lt;Card&gt;
+      &lt;CardHeader&gt;&lt;CardTitle&gt;Match History&lt;/CardTitle&gt;&lt;/CardHeader&gt;
+      &lt;CardContent&gt;
+        {matches.length === 0 ? (
+          &lt;p&gt;No matches recorded yet.&lt;/p&gt;
+        ) : (
+          &lt;Table&gt;
+            &lt;TableBody&gt;
+              {matches.map((match) =&gt; (
+                &lt;TableRow key={match.id}&gt;
+                  &lt;TableCell&gt;{match.winner}&lt;/TableCell&gt;
+                  &lt;TableCell&gt;{match.loser}&lt;/TableCell&gt;
+                &lt;/TableRow&gt;
+              ))}
+            &lt;/TableBody&gt;
+          &lt;/Table&gt;
+        )}
+      &lt;/CardContent&gt;
+    &lt;/Card&gt;
+  )
+}</code></pre>
+      <p>Three things worth pausing on:</p>
+      <ul>
+        <li><strong>No <code>useEffect</code>, no loading spinner, no <code>fetch</code>.</strong> The data is already there when the HTML is created, so the visitor never sees an empty table flash.</li>
+        <li><strong><code>export const dynamic = "force-dynamic"</code></strong> tells Next.js "never cache this page as static HTML" — the scores change, so it must be rebuilt per request.</li>
+        <li><strong><code>key={match.id}</code></strong> — React needs a stable id per row to update lists efficiently.</li>
+      </ul>
+      <p>The query itself is one line, in a shared file so both pages can use it:</p>
+      <div class="file">lib/matches.ts</div>
+      <pre><code>export function getRecentMatches() {
+  return db.match.findMany({ orderBy: { createdAt: "desc" } })
+}</code></pre>
+      <p>Prisma turns that into roughly <code>SELECT * FROM matches ORDER BY created_at DESC</code>.</p>
+
+      <h2 id="form">7. Step 5 — The form and Server Actions (writing data)</h2>
+      <p>
+        Dropdowns need to respond to clicks instantly, so the form must run in
+        the browser. That's what the first line declares:
+      </p>
+      <div class="file">components/match-form.tsx (trimmed)</div>
+      <pre><code>"use client"
+
+export function MatchForm() {
+  const [winner, setWinner] = useState("")
+  const [loser, setLoser] = useState("")
+  const [message, setMessage] = useState(null)
+  const [isPending, startTransition] = useTransition()
+
+  function onSubmit(event) {
+    event.preventDefault()                     // don't let the browser reload the page
+
+    if (!winner || !loser) return setMessage({ type: "error", text: "Pick both a winner and a loser." })
+    if (winner === loser) return setMessage({ type: "error", text: "Winner and loser must be different players." })
+
+    startTransition(async () =&gt; {
+      const result = await recordMatch(winner, loser)   // ← runs on the SERVER
+      if (result.error) return setMessage({ type: "error", text: result.error })
+      setMessage({ type: "success", text: `Recorded: ${winner} beat ${loser}.` })
+      setWinner(""); setLoser("")
+    })
+  }
+  ...
+}</code></pre>
+      <ul>
+        <li><code>useState</code> remembers what's selected; each <code>setWinner</code> re-renders the component.</li>
+        <li><code>useTransition</code> gives us <code>isPending</code>, which is how the button can say "Saving…" and refuse double clicks.</li>
+      </ul>
+      <p>
+        <code>recordMatch</code> looks like an ordinary imported function, but
+        look at the top of its file:
+      </p>
+      <div class="file">app/actions.ts</div>
+      <pre><code>"use server"
+
+export async function recordMatch(winner: string, loser: string) {
+  const error = validateMatch({ winner, loser })
+  if (error) return { error }
+
+  await db.match.create({ data: { winner, loser } })
+
+  revalidatePath("/")
+  revalidatePath("/leaderboard")
+
+  return { success: true }
+}</code></pre>
+      <p>
+        <code>"use server"</code> makes this a <strong>Server Action</strong>.
+        Next.js secretly replaces the import in the browser bundle with a
+        network call, so calling <code>recordMatch(...)</code> from the browser
+        executes this body on the server. The database password never leaves the
+        server, and we didn't have to write any <code>fetch</code> code.
+      </p>
+      <p>
+        <code>revalidatePath</code> is the "throw away the cached version of this
+        page" button — without it you'd submit a match and see a stale table.
+      </p>
+      <h3>Validating twice on purpose</h3>
+      <p>
+        The browser already blocks "Lynn beat Lynn", so why check again on the
+        server? Because <strong>anything a browser sends can be faked</strong>
+        (see the curl command in the next section). Browser checks are for
+        friendliness; server checks are the real rule. Both call the same
+        function so they can't disagree:
+      </p>
+      <div class="file">lib/matches.ts</div>
+      <pre><code>export function validateMatch(input: MatchInput): string | null {
+  if (!isPlayer(input.winner) || !isPlayer(input.loser)) {
+    return "Winner and loser must both be known players."
+  }
+  if (input.winner === input.loser) {
+    return "Winner and loser must be different players."
+  }
+  return null            // null means "no problem"
+}</code></pre>
+      <div class="note">
+        <strong>The one rule this app deliberately breaks</strong>
+        Most apps check "is this person logged in?" before writing to the
+        database. We skip that on purpose: the four players should be able to
+        open a link and type a score. The trade-off is real — anyone with the
+        URL can add matches — and it's acceptable because the stakes are pool
+        bragging rights. Notice that "no login" is a <em>decision</em>, not
+        something missing.
+      </div>
+
+      <h2 id="leaderboard">8. Step 6 — The leaderboard algorithm</h2>
+      <p>
+        The leaderboard turns a list of matches into a ranking table. We fetch
+        every match, then tally in a single pass:
+      </p>
+      <div class="file">lib/matches.ts</div>
+      <pre><code>export async function getStandings(): Promise&lt;PlayerStanding[]&gt; {
+  const matches = await db.match.findMany({ select: { winner: true, loser: true } })
+
+  // start everyone at 0 so a player with no games still appears
+  const standings = new Map(
+    PLAYERS.map((player) =&gt; [player, { player, wins: 0, losses: 0, played: 0, winRate: 0 }])
+  )
+
+  for (const match of matches) {
+    const winner = standings.get(match.winner)
+    const loser = standings.get(match.loser)
+    if (winner) { winner.wins += 1; winner.played += 1 }
+    if (loser)  { loser.losses += 1; loser.played += 1 }
+  }
+
+  return Array.from(standings.values())
+    .map((s) =&gt; ({ ...s, winRate: s.played === 0 ? 0 : s.wins / s.played }))
+    .sort((a, b) =&gt; b.wins - a.wins || b.winRate - a.winRate)
+}</code></pre>
+      <p>Details that matter more than they look:</p>
+      <ul>
+        <li><code>select: { winner: true, loser: true }</code> — ask only for the two columns we count. Don't move data you won't use.</li>
+        <li><strong>Seeding the Map with all four players</strong> is why Neo shows up as 0-0 instead of vanishing before his first game.</li>
+        <li><code>s.played === 0 ? 0 : s.wins / s.played</code> — dividing by zero in JavaScript gives <code>NaN</code>, which would render as literal "NaN%". The page shows an em dash instead.</li>
+        <li><code>b.wins - a.wins || b.winRate - a.winRate</code> — a two-level sort. If the wins difference is <code>0</code> (a tie), <code>||</code> falls through to win rate as the tie-breaker.</li>
+      </ul>
+      <p>
+        One honest limitation: this loads every match to count them. That's
+        instant for a pool league, but for a million rows you'd let the database
+        do the counting with <code>GROUP BY</code>. Knowing <em>when</em> a
+        simple approach stops being fine is most of engineering.
+      </p>
+
+      <h2 id="api">9. Step 7 — A JSON API for scripts</h2>
+      <p>
+        A file at <code>app/api/matches/route.ts</code> becomes the URL
+        <code>/api/matches</code>. Exporting a function named <code>GET</code>
+        or <code>POST</code> handles that HTTP method:
+      </p>
+      <div class="file">app/api/matches/route.ts</div>
+      <pre><code>export async function GET() {
+  return NextResponse.json(await getRecentMatches())
+}
+
+export async function POST(req: Request) {
+  const body = await req.json().catch(() =&gt; null)
+
+  const winner = typeof body?.winner === "string" ? body.winner : ""
+  const loser  = typeof body?.loser  === "string" ? body.loser  : ""
+
+  const error = validateMatch({ winner, loser })
+  if (error) return NextResponse.json({ error }, { status: 422 })
+
+  const match = await db.match.create({ data: { winner, loser } })
+  return NextResponse.json(match, { status: 201 })
+}</code></pre>
+      <p>You can drive the live app straight from a terminal:</p>
+      <pre><code>curl -X POST https://8-ball-ruby.vercel.app/api/matches \
+  -H "content-type: application/json" \
+  -d '{"winner":"Thomas","loser":"Cody"}'</code></pre>
+      <p>
+        Try sending <code>{"winner":"Neo","loser":"Neo"}</code> — you get
+        <code>422</code> and an error message. That request never touched our
+        dropdowns, which is exactly why the server validates. Note also the
+        defensive <code>typeof body?.winner === "string"</code>: a request can
+        contain anything, including nothing at all.
+      </p>
+      <p>
+        Status codes are the conventions of the web: <code>200</code> fine,
+        <code>201</code> created something, <code>422</code> your data was
+        understood but unacceptable, <code>500</code> we crashed.
+      </p>
+
+      <h2 id="deploy">10. Step 8 — Putting it on the internet</h2>
+      <ol>
+        <li><strong>Database:</strong> create a free Neon Postgres project and copy its connection string.</li>
+        <li><strong>Tables:</strong> <code>npx prisma db push</code> with <code>DATABASE_URL</code> set, which creates the <code>matches</code> table.</li>
+        <li><strong>Hosting:</strong> import the GitHub repo into Vercel and set <code>DATABASE_URL</code> in the project's environment variables.</li>
+        <li><strong>Deploy:</strong> Vercel runs <code>npm install</code> then <code>npm run build</code> and publishes the result behind a public URL.</li>
+      </ol>
+      <p>One small line in <code>package.json</code> makes step 4 work at all:</p>
+      <pre><code>"scripts": {
+  "postinstall": "prisma generate"
+}</code></pre>
+      <p>
+        The generated Prisma client isn't committed to git (it's build output),
+        so the build machine has to generate it after installing packages.
+        <code>postinstall</code> is a hook npm runs automatically right after
+        <code>npm install</code>. Without it the build fails with "@prisma/client
+        did not initialize yet" — a very common first-deploy error.
+      </p>
+      <div class="note">
+        <strong>Environment variables in one sentence</strong>
+        Same code, different secrets: your laptop reads <code>DATABASE_URL</code>
+        from <code>.env</code>, Vercel reads it from project settings, and the
+        value is never in the repository — which is why leaking a password
+        doesn't require changing code.
+      </div>
+
+      <h2 id="backfill">11. Step 9 — Backfilling old results (and a bug we fixed)</h2>
+      <p>
+        The league already had a season of history: Cody 7W-10L, Neo 2W-4L,
+        Lynn 9W-6L, Thomas 8W-6L. But our table stores <em>matches</em>, not
+        totals — so those numbers had to be turned back into 26 rows.
+      </p>
+      <p>First, a sanity check that's really a piece of math:</p>
+      <pre><code>total wins  = 7 + 2 + 9 + 8  = 26
+total losses = 10 + 4 + 6 + 6 = 26   ✔ must be equal</code></pre>
+      <p>
+        Every match produces exactly one win and one loss, so those sums are
+        always equal. The first version of the numbers came to 25 wins vs 26
+        losses, which proved one result was misremembered before a single line
+        of code ran. <em>Invariants</em> like this are cheap and catch real
+        errors.
+      </p>
+      <p>Then a greedy pairing builds matches that satisfy every total:</p>
+      <div class="file">prisma/seed-history.mjs (core idea)</div>
+      <pre><code>while (winsRemain) {
+  winner = player with the most wins still owed
+  loser  = player with the most losses still owed (not the winner)
+  emit { winner, loser }
+  wins[winner] -= 1
+  losses[loser] -= 1
+}</code></pre>
+      <p>
+        Always spending the largest remaining counts first is what keeps the
+        puzzle solvable — take from the small piles first and you can strand a
+        player needing to beat only themselves. The script throws if the totals
+        can't be realized instead of writing nonsense.
+      </p>
+      <h3>The bug an automated review caught</h3>
+      <p>
+        The first version inserted the 26 rows unconditionally. Run it twice and
+        every row exists twice, so Cody's 7-10 silently becomes 14-20. Since
+        ids are random, nothing in the database would stop it. The fix is to
+        make the script <strong>idempotent</strong> — safe to run repeatedly:
+      </p>
+      <pre><code>const existing = await db.match.count()
+if (existing &gt; 0) {
+  console.log(`${existing} match(es) already recorded; refusing to seed.`)
+  process.exitCode = 1
+} else {
+  await db.match.createMany({ data: matches })
+}</code></pre>
+      <p>
+        This is worth internalizing: any script that writes to a real database
+        will eventually be run twice — by a retry, a flaky connection, or a
+        human who forgot. Design for the second run.
+      </p>
+
+      <h2 id="ideas">12. Try it yourself: 8 exercises</h2>
+      <p>Roughly easiest to hardest. Every one of these is a real feature request you could ship.</p>
+      <ol>
+        <li><strong>Add a fifth player.</strong> Edit <code>PLAYERS</code> in <code>lib/players.ts</code>. Nothing else changes — predict why before you try it.</li>
+        <li><strong>Show total matches played</strong> above the history table (<code>matches.length</code>).</li>
+        <li><strong>Sort the leaderboard by win rate</strong> instead of wins, and think about why 1-0 (100%) ranking above 9-6 might be unfair.</li>
+        <li><strong>Colour the win rate</strong>: green above 50%, red below, using Tailwind classes.</li>
+        <li><strong>Add a "current streak" column.</strong> Matches are already newest-first, so walk the list per player and stop at their first loss.</li>
+        <li><strong>Add a delete button</strong> for each match row — a Server Action calling <code>db.match.delete</code>, plus <code>revalidatePath</code>.</li>
+        <li><strong>Add a head-to-head grid</strong>: for every pair, how many times A beat B. All the data is already stored; it's pure counting.</li>
+        <li><strong>Add a <code>score</code> field</strong> (e.g. 7–5). This one touches everything: schema, <code>prisma db push</code>, the form, the table. That's what a "small" feature really costs.</li>
+      </ol>
+      <p>
+        Local workflow for all of these: <code>npm install</code>, put your
+        <code>DATABASE_URL</code> in <code>.env</code>, then
+        <code>npm run dev</code> and open <span class="kbd">localhost:3000</span>.
+        Run <code>npm run lint</code> and <code>npm run build</code> before
+        pushing — that's the same check the deploy does.
+      </p>
+
+      <h2 id="glossary">13. Glossary</h2>
+      <table>
+        <tr><th>Term</th><th>Meaning</th></tr>
+        <tr><td>Framework</td><td>A pre-built structure for your app (Next.js) so you don't wire up routing, bundling and rendering yourself.</td></tr>
+        <tr><td>App Router</td><td>Next.js's folders-are-URLs system: <code>app/leaderboard/page.tsx</code> → <code>/leaderboard</code>.</td></tr>
+        <tr><td>Server Component</td><td>A component rendered on the server; may read the database directly, ships no JavaScript to the browser.</td></tr>
+        <tr><td>Client Component</td><td>A component marked <code>"use client"</code> that runs in the browser and can use state and event handlers.</td></tr>
+        <tr><td>Server Action</td><td>A function marked <code>"use server"</code> that the browser can call but which executes on the server.</td></tr>
+        <tr><td>ORM</td><td>Object-Relational Mapper (Prisma): database rows as ordinary objects instead of SQL strings.</td></tr>
+        <tr><td>Schema</td><td>The definition of your tables and their columns.</td></tr>
+        <tr><td>Migration / <code>db push</code></td><td>Applying your schema to the real database.</td></tr>
+        <tr><td>Environment variable</td><td>A configuration value supplied from outside the code, e.g. <code>DATABASE_URL</code>.</td></tr>
+        <tr><td>Serverless</td><td>Hosting where a server is created per request and discarded after — fast and cheap, but with no permanent local files.</td></tr>
+        <tr><td>Validation</td><td>Checking data before storing it. Do it in the browser for kindness, on the server for safety.</td></tr>
+        <tr><td>Idempotent</td><td>Running it twice has the same effect as running it once.</td></tr>
+        <tr><td>Derived data</td><td>Values computed from stored facts (wins) rather than stored separately, so they can never disagree.</td></tr>
+        <tr><td>Invariant</td><td>Something that must always be true, e.g. total wins == total losses.</td></tr>
+        <tr><td>Cache / revalidate</td><td>Reusing a previously built page, and telling the framework when to rebuild it.</td></tr>
+      </table>
+
+      <footer>
+        Built with Next.js, TypeScript, Tailwind CSS, shadcn/ui, Prisma and
+        Postgres · source at
+        <a href="https://github.com/litomli/8-Ball">github.com/litomli/8-Ball</a>
+        · live at
+        <a href="https://8-ball-ruby.vercel.app">8-ball-ruby.vercel.app</a>
+      </footer>
+    </div>
+  </body>
+</html>
