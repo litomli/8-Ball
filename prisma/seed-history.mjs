@@ -35,16 +35,29 @@ function buildMatches(totals) {
 }
 
 const db = new PrismaClient()
-const matches = buildMatches(TOTALS)
 
-// Backdate so the seeded history sorts before anything recorded from now on.
-const start = Date.now() - matches.length * 60_000
-await db.match.createMany({
-  data: matches.map((match, index) => ({
-    ...match,
-    createdAt: new Date(start + index * 60_000),
-  })),
-})
+try {
+  const existing = await db.match.count()
+  if (existing > 0) {
+    console.log(
+      `${existing} match(es) already recorded; refusing to seed because that ` +
+        `would double every total. Delete them first if you really want to reseed.`
+    )
+    process.exitCode = 1
+  } else {
+    const matches = buildMatches(TOTALS)
 
-console.log(`inserted ${matches.length} matches`)
-await db.$disconnect()
+    // Backdate so the seeded history sorts before anything recorded from now on.
+    const start = Date.now() - matches.length * 60_000
+    await db.match.createMany({
+      data: matches.map((match, index) => ({
+        ...match,
+        createdAt: new Date(start + index * 60_000),
+      })),
+    })
+
+    console.log(`inserted ${matches.length} matches`)
+  }
+} finally {
+  await db.$disconnect()
+}
